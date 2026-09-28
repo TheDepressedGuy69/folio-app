@@ -1,32 +1,88 @@
-# React + TypeScript + Vite
+# Folio
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Folio is a browser-based ebook reader for EPUB and PDF files, built as a real, working desktop-web app — not a mockup. It focuses on a polished, physical page-turn reading experience, real highlighting and bookmarking, full-text search, and a proper light/dark app theme layered on top of separate reading themes (Paper, Sepia, Dusk, Night).
 
-Currently, two official plugins are available:
+Everything runs client-side. Books you import are parsed in the browser and stored in IndexedDB on your own device — nothing is uploaded anywhere.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Features
 
-## React Compiler
+- **EPUB and PDF support** — drop in either format and read it with the same UI.
+- **Two-page spread with a real page-turn animation** — drag-to-flip physics (press, pull, and release) with a visible front and back to each page, not a slide or a cut.
+- **Fullscreen reading** — the page-turn animation and pagination stay correct at any window size, including fullscreen.
+- **Reading themes** — Paper, Sepia, Dusk, and Night. EPUB gets true text recoloring; PDF approximates it with a color filter that's smart enough to skip inverting embedded images/photos, so illustrations don't get wrecked by dark mode.
+- **App theme** — independent light/dark/system theme for the app chrome itself (library, toolbars, panels), separate from the reading theme.
+- **Highlighting** — select text in either format, pick a color, and it persists across sessions. EPUB highlights use native CFI ranges; PDF highlights are captured as normalized overlay rects that survive zoom changes.
+- **Bookmarks** — one-click bookmark toggle, with a panel listing all bookmarks and highlights for the current book, each one click-to-jump.
+- **Full-text search** — search the whole book, not just the visible page. EPUB search walks every chapter via epub.js; PDF search scans extracted text per page. Results show a highlighted excerpt and jump straight to the match.
+- **Clickable PDF internal links** — table-of-contents entries and cross-references inside a PDF (real `Link` annotations) are clickable and navigate to the right page.
+- **Progress tracking** — a seekable progress bar (click or drag to jump anywhere in the book), reading position saved automatically on every page turn and restored on reopen.
+- **Library management** — import multiple files at once, search/sort/filter your library by title, author, or format, and remove books (with an inline confirm, not a browser `confirm()` dialog).
+- **Reading customization** — adjustable font size and typeface (serif/sans) for EPUB, adjustable zoom for PDF.
+- **Storage usage** — see how much of your browser's storage quota your library is using.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Use cases
 
-## Expanding the Oxlint configuration
+- Reading EPUBs or PDFs you already own, entirely locally, without installing a desktop reader app or sending files to a third-party service.
+- Reading long-form PDFs (papers, manuscripts, scanned books) with a proper two-page book layout instead of a single scrolling column.
+- Studying or referencing a book with highlights and bookmarks that persist between sessions.
+- Quickly finding a passage or reference in a large book via full-text search instead of scrubbing through pages manually.
+- Reading comfortably at night or in bright light using the reading themes, independent of your OS/browser theme.
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+## Tech stack
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+- **React 19 + TypeScript + Vite**
+- **[epub.js](https://github.com/futurepress/epub.js)** for EPUB rendering, pagination, and CFI-based navigation/highlighting
+- **[pdf.js](https://github.com/mozilla/pdf.js)** (`pdfjs-dist`) for PDF rendering, text extraction, and link annotations
+- **Framer Motion** for the page-turn physics and all UI animation
+- **`idb-keyval`** for IndexedDB persistence (library metadata, book files, progress, bookmarks, highlights, settings)
+- **React Router** for navigation between Library / Reader / Settings
+
+No backend, no server, no accounts — it's a static app.
+
+## Setup
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) 18 or later
+- npm (comes with Node)
+
+### Install and run
+
+```bash
+git clone https://github.com/TheDepressedGuy69/folio-app.git
+cd folio-app
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+This starts a local dev server (Vite will print the URL, typically `http://localhost:5173`). Open it in a browser and import an EPUB or PDF to get started.
+
+### Other scripts
+
+```bash
+npm run build     # type-check and build a production bundle to dist/
+npm run preview   # serve the production build locally
+npm run lint       # run oxlint
+```
+
+### Test fixtures
+
+`public/fixtures/` contains a small sample EPUB and PDF (generated by `scripts/makeFixtures.mjs`) you can import to try the app without your own files.
+
+## Project structure
+
+```
+src/
+  pages/        Library, Reader, Settings — the three top-level screens
+  reader/       EpubReader and PdfReader — format-specific rendering engines
+  motion/       PageTurn (the drag-physics page-flip component) and shared animation presets
+  components/   Reusable UI: BookCard, BookmarksPanel, SearchPanel, AppearancePopover, etc.
+  context/      LibraryContext and SettingsContext (React context + IndexedDB-backed state)
+  lib/          IndexedDB access, book import/parsing, shared types
+```
+
+## Notes / known limitations
+
+- PDF reading theme (Dusk/Night) is a color filter approximation, not true recoloring — PDF pages are rasterized, not real text like EPUB.
+- Font size and typeface controls apply to EPUB only; PDF uses zoom instead, since its layout is fixed.
+- Everything is stored locally in the browser's IndexedDB — clearing site data / browser storage will remove your library.
