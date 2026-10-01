@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import Sidebar from '../components/Sidebar';
 import { useSettings } from '../context/SettingsContext';
 import { useLibrary } from '../context/LibraryContext';
-import { estimateStorage } from '../lib/db';
+import { estimateStorage, getStorageLocation } from '../lib/db';
 import { READING_THEME_COLORS } from '../lib/types';
 import type { AppTheme, ReadingTheme, Typeface } from '../lib/types';
 import { springSnappy } from '../motion/springs';
@@ -37,10 +37,15 @@ export default function Settings() {
   const { settings, update } = useSettings();
   const { books } = useLibrary();
   const [storage, setStorage] = useState({ usage: 0, quota: 0 });
+  const [storagePath, setStoragePath] = useState<string | null>(null);
 
   useEffect(() => {
     estimateStorage().then(setStorage);
   }, [books.length]);
+
+  useEffect(() => {
+    getStorageLocation().then(setStoragePath);
+  }, []);
 
   const usagePercent = storage.quota ? Math.min(100, (storage.usage / storage.quota) * 100) : 0;
 
@@ -198,8 +203,15 @@ export default function Settings() {
                   />
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-                  {formatBytes(storage.usage)} of {formatBytes(storage.quota)} used (browser storage)
+                  {storage.quota
+                    ? `${formatBytes(storage.usage)} of ${formatBytes(storage.quota)} free disk space used`
+                    : `${formatBytes(storage.usage)} used`}
                 </div>
+                {storagePath && (
+                  <div style={{ fontSize: 10.5, color: 'var(--text-faint)', wordBreak: 'break-all' }}>
+                    Stored at {storagePath}
+                  </div>
+                )}
               </div>
             </Card>
           </div>

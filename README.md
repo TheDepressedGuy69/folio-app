@@ -1,8 +1,8 @@
 # Folio
 
-Folio is a browser-based ebook reader for EPUB and PDF files, built as a real, working desktop-web app — not a mockup. It focuses on a polished, physical page-turn reading experience, real highlighting and bookmarking, full-text search, and a proper light/dark app theme layered on top of separate reading themes (Paper, Sepia, Dusk, Night).
+Folio is a native desktop ebook reader for EPUB and PDF files (macOS/Windows/Linux via [Tauri](https://tauri.app)) — not a website, not a browser tab. It focuses on a polished, physical page-turn reading experience, real highlighting and bookmarking, full-text search, and a proper light/dark app theme layered on top of separate reading themes (Paper, Sepia, Dusk, Night).
 
-Everything runs client-side. Books you import are parsed in the browser and stored in IndexedDB on your own device — nothing is uploaded anywhere.
+Everything runs locally. Books you import are parsed on-device and stored as real files on disk, in the OS's standard per-app data directory (`~/Library/Application Support/com.folio.app` on macOS) — nothing is uploaded anywhere, and nothing lives in browser storage, so clearing browser/site data has no effect on your library.
 
 ## Features
 
@@ -18,7 +18,7 @@ Everything runs client-side. Books you import are parsed in the browser and stor
 - **Progress tracking** — a seekable progress bar (click or drag to jump anywhere in the book), reading position saved automatically on every page turn and restored on reopen.
 - **Library management** — import multiple files at once, search/sort/filter your library by title, author, or format, and remove books (with an inline confirm, not a browser `confirm()` dialog).
 - **Reading customization** — adjustable font size and typeface (serif/sans) for EPUB, adjustable zoom for PDF.
-- **Storage usage** — see how much of your browser's storage quota your library is using.
+- **Storage usage** — see how much real disk space your library is using, and where it's stored.
 
 ## Use cases
 
@@ -30,39 +30,49 @@ Everything runs client-side. Books you import are parsed in the browser and stor
 
 ## Tech stack
 
-- **React 19 + TypeScript + Vite**
+- **[Tauri 2](https://tauri.app)** (Rust) — packages the app as a native window with a real OS webview, and is the only thing with filesystem access; the UI talks to it through a small set of typed commands/plugins, never raw Node/browser APIs.
+- **React 19 + TypeScript + Vite** for the UI.
 - **[epub.js](https://github.com/futurepress/epub.js)** for EPUB rendering, pagination, and CFI-based navigation/highlighting
 - **[pdf.js](https://github.com/mozilla/pdf.js)** (`pdfjs-dist`) for PDF rendering, text extraction, and link annotations
 - **Framer Motion** for the page-turn physics and all UI animation
-- **`idb-keyval`** for IndexedDB persistence (library metadata, book files, progress, bookmarks, highlights, settings)
+- **`@tauri-apps/plugin-fs`** for on-disk persistence (library metadata, book files, progress, bookmarks, highlights, settings) under the OS app-data directory
 - **React Router** for navigation between Library / Reader / Settings
 
-No backend, no server, no accounts — it's a static app.
+No backend, no server, no accounts, no browser storage — it's a self-contained native app.
 
 ## Setup
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) 18 or later
-- npm (comes with Node)
+- [Node.js](https://nodejs.org/) 18 or later and npm
+- [Rust](https://www.rust-lang.org/tools/install) (stable) — needed to build the native shell
+- On macOS: Xcode Command Line Tools (`xcode-select --install`)
 
-### Install and run
+### Run the app
 
 ```bash
 git clone https://github.com/TheDepressedGuy69/folio-app.git
 cd folio-app
 npm install
-npm run dev
+npm run app:dev
 ```
 
-This starts a local dev server (Vite will print the URL, typically `http://localhost:5173`). Open it in a browser and import an EPUB or PDF to get started.
+This compiles the Rust shell (slow the first time, fast after) and opens Folio as a real desktop window pointed at the Vite dev server, with hot reload for the UI.
+
+### Build an installable app
+
+```bash
+npm run app:build
+```
+
+Produces a standalone `.app` (and a `.dmg` on macOS) under `src-tauri/target/release/bundle/`, ready to drag into Applications — no dev server or Node required to run it afterward.
 
 ### Other scripts
 
 ```bash
-npm run build     # type-check and build a production bundle to dist/
-npm run preview   # serve the production build locally
-npm run lint       # run oxlint
+npm run dev        # Vite dev server only, opened in a plain browser tab — for quick UI iteration; falls back to IndexedDB storage in this mode
+npm run build       # type-check and build the web assets to dist/ (used internally by app:build)
+npm run lint        # run oxlint
 ```
 
 ### Test fixtures
@@ -77,12 +87,14 @@ src/
   reader/       EpubReader and PdfReader — format-specific rendering engines
   motion/       PageTurn (the drag-physics page-flip component) and shared animation presets
   components/   Reusable UI: BookCard, BookmarksPanel, SearchPanel, AppearancePopover, etc.
-  context/      LibraryContext and SettingsContext (React context + IndexedDB-backed state)
-  lib/          IndexedDB access, book import/parsing, shared types
+  context/      LibraryContext and SettingsContext (React context + on-disk-backed state)
+  lib/          Storage access (db.ts), book import/parsing, shared types
+src-tauri/      The Rust native shell: window config, filesystem permissions, and the
+                one custom command (disk space) the UI needs beyond the fs plugin
 ```
 
 ## Notes / known limitations
 
 - PDF reading theme (Dusk/Night) is a color filter approximation, not true recoloring — PDF pages are rasterized, not real text like EPUB.
 - Font size and typeface controls apply to EPUB only; PDF uses zoom instead, since its layout is fixed.
-- Everything is stored locally in the browser's IndexedDB — clearing site data / browser storage will remove your library.
+- Your library lives in the OS app-data directory (shown in Settings → Storage), as real files Folio owns — not in any browser's storage, so it isn't affected by clearing browser/site data.
