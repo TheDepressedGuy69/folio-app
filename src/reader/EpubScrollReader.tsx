@@ -55,12 +55,18 @@ const EpubScrollReader = forwardRef<ReaderHandle, EpubReaderProps>(function Epub
     bookRef.current = book;
 
     (async () => {
-      await book.ready;
-      try {
-        await book.locations.generate(1600);
-      } catch {
-        // progress % just won't be exact for odd books; navigation still works
-      }
+      await book.opened;
+      // Generated in the background so rendering never waits on it; progress % is refreshed once ready.
+      book.locations
+        .generate(1600)
+        .then(() => {
+          const cfi = (renditionRef.current as any)?.location?.start?.cfi as string | undefined;
+          if (cancelled || !cfi) return;
+          onProgress({ location: cfi, percent: book.locations.percentageFromCfi(cfi) ?? 0 });
+        })
+        .catch(() => {
+          // progress % just won't be exact for odd books; navigation still works
+        });
       if (cancelled || !wrapperRef.current) return;
 
       const rendition = book.renderTo(wrapperRef.current, {
@@ -99,7 +105,8 @@ const EpubScrollReader = forwardRef<ReaderHandle, EpubReaderProps>(function Epub
     return () => {
       cancelled = true;
       renditionRef.current?.destroy();
-      book.destroy();
+      // epub.js still runs resources.replaceCss() after open; destroying earlier throws
+      Promise.resolve(book.opened).catch(() => {}).then(() => book.destroy());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);

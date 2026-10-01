@@ -54,7 +54,7 @@ async function extractEpubMeta(
 ): Promise<{ title: string; author: string; coverDataUrl: string | null }> {
   const book = ePub(data.slice(0));
   try {
-    await book.ready;
+    await book.opened;
     const metadata = await book.loaded.metadata;
     let coverDataUrl: string | null = null;
     try {
