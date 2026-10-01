@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import EpubReader from '../reader/EpubReader';
 import PdfReader from '../reader/PdfReader';
+import EpubScrollReader from '../reader/EpubScrollReader';
+import PdfScrollReader from '../reader/PdfScrollReader';
 import type { ReaderHandle } from '../reader/readerTypes';
 import ModeSwitch from '../components/ModeSwitch';
 import AppearancePopover from '../components/AppearancePopover';
@@ -23,6 +25,8 @@ import {
   ChevronRight,
   ExpandIcon,
   ShrinkIcon,
+  BookOpenIcon,
+  ScrollIcon,
 } from '../components/Icons';
 import { useLibrary } from '../context/LibraryContext';
 import { useSettings } from '../context/SettingsContext';
@@ -40,6 +44,7 @@ export default function Reader() {
   const book = books.find((b) => b.id === bookId) ?? null;
   const [data, setData] = useState<ArrayBuffer | null>(null);
   const [mode, setMode] = useState<'read' | 'highlight'>('read');
+  const [viewMode, setViewMode] = useState<'paged' | 'scroll'>('paged');
   const [panelOpen, setPanelOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -60,6 +65,40 @@ export default function Reader() {
   const rootRef = useRef<HTMLDivElement>(null);
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(rootRef);
   const preFullscreenZoom = useRef(1);
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!isFullscreen) {
+      setChromeVisible(true);
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      return;
+    }
+    const EDGE = 90;
+    const onMove = (e: MouseEvent) => {
+      const nearEdge = e.clientY < EDGE || e.clientY > window.innerHeight - EDGE;
+      if (nearEdge) {
+        if (hideTimer.current) {
+          clearTimeout(hideTimer.current);
+          hideTimer.current = null;
+        }
+        setChromeVisible(true);
+      } else if (!hideTimer.current) {
+        hideTimer.current = setTimeout(() => {
+          setChromeVisible(false);
+          hideTimer.current = null;
+        }, 900);
+      }
+    };
+    window.addEventListener('mousemove', onMove);
+    const initialHide = setTimeout(() => setChromeVisible(false), 1400);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      clearTimeout(initialHide);
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+    };
+  }, [isFullscreen]);
 
   useEffect(() => {
     if (isFullscreen) {
@@ -216,7 +255,23 @@ export default function Reader() {
         position: 'relative',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '18px 30px' }}>
+      <motion.div
+        animate={{ opacity: isFullscreen && !chromeVisible ? 0 : 1, y: isFullscreen && !chromeVisible ? -16 : 0 }}
+        transition={{ duration: 0.22 }}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 18,
+          padding: '18px 30px',
+          position: isFullscreen ? 'absolute' : 'relative',
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 30,
+          background: isFullscreen ? 'linear-gradient(to bottom, rgba(0,0,0,.35), transparent)' : undefined,
+          pointerEvents: isFullscreen && !chromeVisible ? 'none' : 'auto',
+        }}
+      >
         <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-dim)', fontSize: 13.5 }}>
           <BackIcon size={16} />
           Library
@@ -240,6 +295,14 @@ export default function Reader() {
             <SearchIcon size={18} />
           </button>
           <ModeSwitch mode={mode} onChange={setMode} />
+          <button
+            className="icon-btn"
+            onClick={() => setViewMode((v) => (v === 'paged' ? 'scroll' : 'paged'))}
+            aria-label={viewMode === 'paged' ? 'Switch to continuous scroll' : 'Switch to page-turn view'}
+            title={viewMode === 'paged' ? 'Continuous scroll' : 'Page-turn view'}
+          >
+            {viewMode === 'paged' ? <ScrollIcon size={18} /> : <BookOpenIcon size={18} />}
+          </button>
           <motion.button
             whileTap={{ scale: 0.85 }}
             className={`icon-btn${currentBookmark ? ' active' : ''}`}
@@ -270,7 +333,7 @@ export default function Reader() {
             {isFullscreen ? <ShrinkIcon size={18} /> : <ExpandIcon size={18} />}
           </button>
         </div>
-      </div>
+      </motion.div>
 
       {mode === 'highlight' && (
         <div
@@ -294,7 +357,7 @@ export default function Reader() {
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', padding: isFullscreen ? 12 : 20 }}>
-          {mode === 'read' && (
+          {mode === 'read' && viewMode === 'paged' && (
             <>
               <motion.button
                 whileHover={{ scale: 1.08, x: -2 }}
@@ -327,17 +390,44 @@ export default function Reader() {
             }}
           >
             {book.type === 'epub' ? (
-              <EpubReader
+              viewMode === 'scroll' ? (
+                <EpubScrollReader
+                  ref={readerRef}
+                  data={data}
+                  initialLocation={progressByBook[book.id]?.location}
+                  mode={mode}
+                  readingTheme={settings.readingTheme}
+                  fontSize={settings.fontSize}
+                  typeface={settings.typeface}
+                  highlights={highlights.filter((h): h is EpubHighlight => h.kind === 'epub')}
+                  onProgress={onProgress}
+                  onSelection={onEpubSelection}
+                />
+              ) : (
+                <EpubReader
+                  ref={readerRef}
+                  data={data}
+                  initialLocation={progressByBook[book.id]?.location}
+                  mode={mode}
+                  readingTheme={settings.readingTheme}
+                  fontSize={settings.fontSize}
+                  typeface={settings.typeface}
+                  highlights={highlights.filter((h): h is EpubHighlight => h.kind === 'epub')}
+                  onProgress={onProgress}
+                  onSelection={onEpubSelection}
+                />
+              )
+            ) : viewMode === 'scroll' ? (
+              <PdfScrollReader
                 ref={readerRef}
                 data={data}
                 initialLocation={progressByBook[book.id]?.location}
                 mode={mode}
                 readingTheme={settings.readingTheme}
-                fontSize={settings.fontSize}
-                typeface={settings.typeface}
-                highlights={highlights.filter((h): h is EpubHighlight => h.kind === 'epub')}
+                zoom={zoom}
+                highlights={highlights.filter((h): h is PdfHighlight => h.kind === 'pdf')}
                 onProgress={onProgress}
-                onSelection={onEpubSelection}
+                onSelection={onPdfSelection}
               />
             ) : (
               <PdfReader
@@ -405,15 +495,29 @@ export default function Reader() {
         />
       </div>
 
-      <ProgressBar
-        percent={percent}
-        label={
-          book.type === 'pdf'
-            ? `Page ${location || '1'}${totalPages ? ` of ${totalPages}` : ''}`
-            : `${Math.round(percent * 100)}% read`
-        }
-        onSeek={(p) => readerRef.current?.goToPercent(p)}
-      />
+      <motion.div
+        animate={{ opacity: isFullscreen && !chromeVisible ? 0 : 1, y: isFullscreen && !chromeVisible ? 16 : 0 }}
+        transition={{ duration: 0.22 }}
+        style={{
+          position: isFullscreen ? 'absolute' : 'relative',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 30,
+          background: isFullscreen ? 'linear-gradient(to top, rgba(0,0,0,.35), transparent)' : undefined,
+          pointerEvents: isFullscreen && !chromeVisible ? 'none' : 'auto',
+        }}
+      >
+        <ProgressBar
+          percent={percent}
+          label={
+            book.type === 'pdf'
+              ? `Page ${location || '1'}${totalPages ? ` of ${totalPages}` : ''}`
+              : `${Math.round(percent * 100)}% read`
+          }
+          onSeek={(p) => readerRef.current?.goToPercent(p)}
+        />
+      </motion.div>
 
       <Toast toasts={toasts} />
     </div>

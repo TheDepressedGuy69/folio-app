@@ -6,7 +6,7 @@ import { HIGHLIGHT_COLORS, READING_THEME_COLORS } from '../lib/types';
 import type { PdfReaderProps, ReaderHandle } from './readerTypes';
 import '../lib/pdfWorker';
 
-const READING_FILTER: Record<string, string> = {
+export const READING_FILTER: Record<string, string> = {
   paper: 'none',
   sepia: 'sepia(0.35) contrast(0.96)',
   dusk: 'invert(0.86) hue-rotate(180deg) contrast(0.9) brightness(0.95)',
@@ -118,7 +118,7 @@ function maskDataUrl(rects: Rect[], width: number, height: number): string {
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 }
 
-interface PageSlotProps {
+export interface PageSlotProps {
   pdf: PDFDocumentProxy | null;
   pageNum: number | null;
   scale: number;
@@ -130,7 +130,7 @@ interface PageSlotProps {
   onNavigate?: (page: number) => void;
 }
 
-function PageSlot({
+export function PageSlot({
   pdf,
   pageNum,
   scale,

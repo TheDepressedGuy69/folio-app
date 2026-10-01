@@ -16,7 +16,7 @@ function renditionOpts(width: number, height: number) {
   };
 }
 
-function applyTheme(
+export function applyTheme(
   rendition: Rendition,
   bg: string,
   fg: string,

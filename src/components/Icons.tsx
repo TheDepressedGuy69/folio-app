@@ -129,3 +129,10 @@ export const ShrinkIcon = (p: IconProps) => (
     <path d="M9 3v3a2 2 0 0 1-2 2H4M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M15 21v-3a2 2 0 0 1 2-2h3" />
   </svg>
 );
+
+export const ScrollIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="5" y="2" width="14" height="20" rx="2" />
+    <path d="M9 7h6M9 11h6M9 15h4" />
+  </svg>
+);
