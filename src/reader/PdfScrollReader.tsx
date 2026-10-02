@@ -60,7 +60,7 @@ function ScrollRow({
       data-page={pageNum}
       style={{ display: 'flex', justifyContent: 'center', padding: '10px 0' }}
     >
-      <div style={{ position: 'relative', width: width || undefined, height: height || undefined }}>
+      <div style={{ position: 'relative', width: width || undefined, minHeight: height || undefined }}>
         {visible && width > 0 && (
           <>
             <PageSlot
