@@ -355,8 +355,8 @@ export default function Reader() {
         </div>
       )}
 
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', padding: isFullscreen ? 12 : 20 }}>
+      <div style={{ flex: 1, display: 'flex', minHeight: 0, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', padding: isFullscreen ? 12 : 20 }}>
           {mode === 'read' && viewMode === 'paged' && (
             <>
               <motion.button
@@ -386,6 +386,8 @@ export default function Reader() {
               width: isFullscreen ? '99%' : 'min(1500px, 96%)',
               height: '100%',
               position: 'relative',
+              minWidth: 0,
+              overflow: viewMode === 'scroll' ? 'hidden' : undefined,
               transition: 'width 0.3s ease, height 0.3s ease',
             }}
           >

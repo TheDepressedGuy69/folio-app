@@ -50,7 +50,8 @@ async function readJson<T>(path: string): Promise<T | undefined> {
   try {
     const text = await readTextFile(path, { baseDir: BaseDirectory.AppData });
     return JSON.parse(text) as T;
-  } catch {
+  } catch (err) {
+    console.error('Folio: failed to read', path, err);
     return undefined;
   }
 }

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { BookMeta, ReadingProgress } from '../lib/types';
 import { getLibrary, setLibrary, deleteBookData, getProgress, setProgress, getBookmarks } from '../lib/db';
 import { importBookFile } from '../lib/importBook';
@@ -66,6 +66,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const removeBook = useCallback(async (id: string) => {
+    pendingWrites.current.delete(id);
     await deleteBookData(id);
     setBooks((prev) => {
       const next = prev.filter((b) => b.id !== id);
@@ -84,8 +85,41 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Scrolling reports progress every frame; writing each one to disk lets slow, older writes
+  // land after newer ones. Keep only the latest per book and write it once scrolling settles.
+  const pendingWrites = useRef(new Map<string, ReadingProgress>());
+  const writeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushProgress = useCallback(async () => {
+    if (writeTimer.current) clearTimeout(writeTimer.current);
+    writeTimer.current = null;
+    const entries = [...pendingWrites.current];
+    pendingWrites.current.clear();
+    for (const [id, p] of entries) {
+      try {
+        await setProgress(id, p);
+      } catch (err) {
+        console.error('Folio: failed to save reading progress', err);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') void flushProgress();
+    };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', flushProgress);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', flushProgress);
+      void flushProgress();
+    };
+  }, [flushProgress]);
+
   const recordProgress = useCallback(async (id: string, progress: ReadingProgress) => {
-    await setProgress(id, progress);
+    pendingWrites.current.set(id, progress);
+    if (writeTimer.current) clearTimeout(writeTimer.current);
+    writeTimer.current = setTimeout(() => void flushProgress(), 300);
     setProgressByBook((prev) => {
       const existing = prev[id];
       if (existing && existing.location === progress.location && existing.percent === progress.percent) {
@@ -93,7 +127,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       }
       return { ...prev, [id]: progress };
     });
-  }, []);
+  }, [flushProgress]);
 
   // Reader.tsx keeps its own bookmarks list live while a book is open; it
   // reports the count back so the library grid's "bookmarked" badge stays

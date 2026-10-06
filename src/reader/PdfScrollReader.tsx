@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useLayoutEffect, useImperativeHandle, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { type PDFDocumentProxy } from 'pdfjs-dist';
 import { PageSlot, READING_FILTER } from './PdfReader';
@@ -58,9 +58,9 @@ function ScrollRow({
         rowRef(el);
       }}
       data-page={pageNum}
-      style={{ display: 'flex', justifyContent: 'center', padding: '10px 0' }}
+      style={{ minWidth: width || undefined, padding: '10px 0' }}
     >
-      <div style={{ position: 'relative', width: width || undefined, minHeight: height || undefined }}>
+      <div style={{ position: 'relative', margin: '0 auto', width: width || undefined, minHeight: height || undefined }}>
         {visible && width > 0 && (
           <>
             <PageSlot
@@ -114,11 +114,19 @@ const PdfScrollReader = forwardRef<ReaderHandle, PdfReaderProps>(function PdfScr
   const [fitScale, setFitScale] = useState(0);
   const naturalWidthRef = useRef(0);
   const naturalHeightRef = useRef(0);
+  // Horizontal extent of the actual text (in PDF units), so we can fit the text column
+  // to the window and let the blank page margins fall off-screen.
+  const contentLeftRef = useRef(0);
+  const contentWidthRef = useRef(0);
   const currentPageRef = useRef(Number(initialLocation) || 1);
+  // Where the reader is looking, as a page + fraction down that page — survives re-layout.
+  const anchorRef = useRef({ page: Number(initialLocation) || 1, frac: 0 });
+  const lastScaleRef = useRef(0);
   const pendingInitialScroll = useRef(true);
   const theme = READING_THEME_COLORS[readingTheme];
 
-  const computeFitWidth = (el: HTMLElement) => ((el.clientWidth - 24) * 0.96) / (naturalWidthRef.current || 1);
+  const computeFitWidth = (el: HTMLElement) =>
+    ((el.clientWidth - 24) * 0.96) / (contentWidthRef.current || naturalWidthRef.current || 1);
 
   useEffect(() => {
     let cancelled = false;
@@ -132,6 +140,44 @@ const PdfScrollReader = forwardRef<ReaderHandle, PdfReaderProps>(function PdfScr
       const natural = page.getViewport({ scale: 1 });
       naturalWidthRef.current = natural.width;
       naturalHeightRef.current = natural.height;
+      contentLeftRef.current = 0;
+      contentWidthRef.current = natural.width;
+      try {
+        // Median text extent over a spread of pages — robust to cover/chapter-title/image pages.
+        const picks = Array.from({ length: Math.min(doc.numPages, 15) }, (_, i) =>
+          Math.max(1, Math.round(((i + 0.5) * doc.numPages) / Math.min(doc.numPages, 15))),
+        );
+        const lefts: number[] = [];
+        const rights: number[] = [];
+        for (const n of picks) {
+          const content = await (await doc.getPage(n)).getTextContent();
+          let l = Infinity;
+          let r = -Infinity;
+          for (const it of content.items as any[]) {
+            if (!it.str?.trim() || !it.transform) continue;
+            l = Math.min(l, it.transform[4]);
+            r = Math.max(r, it.transform[4] + (it.width ?? 0));
+          }
+          if (r > l) {
+            lefts.push(l);
+            rights.push(r);
+          }
+        }
+        if (cancelled) return;
+        const med = (a: number[]) => a.sort((x, y) => x - y)[Math.floor(a.length / 2)];
+        if (lefts.length >= 3) {
+          const l = Math.max(0, med(lefts));
+          const r = Math.min(natural.width, med(rights));
+          if (r - l > natural.width * 0.3) {
+            // a little breathing room either side so glyphs never touch the edge
+            const pad = (r - l) * 0.03;
+            contentLeftRef.current = Math.max(0, l - pad);
+            contentWidthRef.current = Math.min(natural.width, r + pad) - contentLeftRef.current;
+          }
+        }
+      } catch {
+        // fall back to whole-page fit
+      }
       if (containerRef.current) setFitScale(computeFitWidth(containerRef.current));
     })();
     return () => {
@@ -163,13 +209,45 @@ const PdfScrollReader = forwardRef<ReaderHandle, PdfReaderProps>(function PdfScr
   const pageWidth = Math.round(naturalWidthRef.current * scale);
   const pageHeight = Math.round(naturalHeightRef.current * scale);
 
+  // The page is wider than the viewport (margins are cropped); keep the text column centered.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || pageWidth <= 0) return;
+    const center = (contentLeftRef.current + contentWidthRef.current / 2) * scale;
+    el.scrollLeft = Math.max(0, center - el.clientWidth / 2);
+  }, [pageWidth, numPages, scale]);
+
+  // scrollIntoView would also scroll ancestors horizontally (rows are wider than the
+  // viewport), shoving the whole app sideways — scroll only this container, vertically.
+  const scrollRowTo = (row: HTMLElement, smooth: boolean) => {
+    const el = containerRef.current;
+    if (!el) return;
+    const top = row.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+    el.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' });
+  };
+
+  // A resize / zoom / fit change rescales every row; keep the reader on the same spot
+  // instead of letting the scroll offset drift onto a different page (and get saved).
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    const prev = lastScaleRef.current;
+    lastScaleRef.current = scale;
+    if (!el || !prev || scale <= 0 || prev === scale || pendingInitialScroll.current) return;
+    const row = rowsRef.current.get(anchorRef.current.page);
+    if (!row) return;
+    const anchorY = el.getBoundingClientRect().top + 40;
+    const rect = row.getBoundingClientRect();
+    el.scrollTop += rect.top + anchorRef.current.frac * rect.height - anchorY;
+  }, [scale]);
+
   // Jump to the saved/requested page once pages exist to scroll to.
   useEffect(() => {
     if (!pendingInitialScroll.current || !numPages || scale <= 0) return;
     const target = Math.max(1, Math.min(numPages, Number(initialLocation) || 1));
     const row = rowsRef.current.get(target);
     if (row) {
-      row.scrollIntoView({ block: 'start' });
+      scrollRowTo(row, false);
+      anchorRef.current = { page: target, frac: 0 };
       pendingInitialScroll.current = false;
     }
   }, [numPages, scale, initialLocation]);
@@ -192,6 +270,7 @@ const PdfScrollReader = forwardRef<ReaderHandle, PdfReaderProps>(function PdfScr
           if (rect.top <= anchor && rect.bottom > anchor) {
             best = p;
             bestDist = -1;
+            anchorRef.current = { page: p, frac: (anchor - rect.top) / Math.max(1, rect.height) };
             break;
           }
           const dist = Math.abs(rect.top - anchor);
@@ -242,7 +321,8 @@ const PdfScrollReader = forwardRef<ReaderHandle, PdfReaderProps>(function PdfScr
 
   const scrollToPage = useCallback((n: number, smooth = true) => {
     const row = rowsRef.current.get(n);
-    row?.scrollIntoView({ block: 'start', behavior: smooth ? 'smooth' : 'auto' });
+    if (row) scrollRowTo(row, smooth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useImperativeHandle(ref, () => ({
@@ -292,7 +372,7 @@ const PdfScrollReader = forwardRef<ReaderHandle, PdfReaderProps>(function PdfScr
     <div
       ref={containerRef}
       className="scroll-y"
-      style={{ width: '100%', height: '100%', overflowY: 'auto', background: theme.bg, borderRadius: 6 }}
+      style={{ width: '100%', height: '100%', overflow: 'auto', background: theme.bg, borderRadius: 6 }}
     >
       {pages.map((n) => (
         <ScrollRow
