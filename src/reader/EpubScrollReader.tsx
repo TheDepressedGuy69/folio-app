@@ -6,6 +6,27 @@ import { applyTheme } from './EpubReader';
 import { HIGHLIGHT_COLORS, READING_THEME_COLORS } from '../lib/types';
 import type { EpubReaderProps, ReaderHandle } from './readerTypes';
 
+// Scroll mode gets a wide, tall view; a centered readable column with slightly larger
+// type keeps lines from stretching edge to edge and the text from looking tiny.
+const SCROLL_FONT_BOOST = 1.25;
+
+function applyScrollTheme(
+  rendition: Rendition,
+  bg: string,
+  fg: string,
+  fontSize: number,
+  typeface: 'serif' | 'sans',
+) {
+  applyTheme(rendition, bg, fg, fontSize * SCROLL_FONT_BOOST, typeface);
+  rendition.themes.default({
+    body: {
+      'max-width': '40em',
+      margin: '0 auto !important',
+      padding: '28px 24px !important',
+    },
+  });
+}
+
 const EpubScrollReader = forwardRef<ReaderHandle, EpubReaderProps>(function EpubScrollReader(
   { data, initialLocation, mode, readingTheme, fontSize, typeface, highlights, onProgress, onSelection },
   ref,
@@ -78,7 +99,7 @@ const EpubScrollReader = forwardRef<ReaderHandle, EpubReaderProps>(function Epub
       } as any);
       renditionRef.current = rendition;
 
-      applyTheme(rendition, theme.bg, theme.fg, fontSize, typeface);
+      applyScrollTheme(rendition, theme.bg, theme.fg, fontSize, typeface);
 
       rendition.on('rendered', () => applyHighlights(rendition));
       rendition.on('selected', (cfiRange: string, contents: any) => {
@@ -113,7 +134,7 @@ const EpubScrollReader = forwardRef<ReaderHandle, EpubReaderProps>(function Epub
 
   useEffect(() => {
     const rendition = renditionRef.current;
-    if (rendition) applyTheme(rendition, theme.bg, theme.fg, fontSize, typeface);
+    if (rendition) applyScrollTheme(rendition, theme.bg, theme.fg, fontSize, typeface);
   }, [theme.bg, theme.fg, fontSize, typeface]);
 
   useEffect(() => {
@@ -127,18 +148,24 @@ const EpubScrollReader = forwardRef<ReaderHandle, EpubReaderProps>(function Epub
     const el = wrapperRef.current;
     let raf = 0;
     const ro = new ResizeObserver(() => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
+      clearTimeout(raf);
+      raf = window.setTimeout(async () => {
+        const rendition = renditionRef.current;
+        if (!rendition) return;
+        // Resizing reflows the whole book; remember where we were and go back there
+        // so the reading position (and the progress saved from it) doesn't drift.
+        const cfi = (rendition as any).location?.start?.cfi as string | undefined;
         try {
-          renditionRef.current?.resize('100%' as any, '100%' as any);
+          rendition.resize('100%' as any, '100%' as any);
+          if (cfi) await rendition.display(cfi);
         } catch {
           // ignore — resize is best-effort
         }
-      });
+      }, 200);
     });
     ro.observe(el);
     return () => {
-      cancelAnimationFrame(raf);
+      clearTimeout(raf);
       ro.disconnect();
     };
   }, []);
